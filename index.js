@@ -1,72 +1,188 @@
-const express = require("express");
-const cors = require("cors");
+const express = require('express');
+const cors = require('cors');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 
-/* ✅ FIXED CORS (VERY IMPORTANT) */
-app.use(cors()); // allow all origins (works for Azure frontend)
+/* ✅ CONFIG */
+const SECRET_KEY = "your_secret_key";
 
-/* ✅ BODY PARSER */
+/* ✅ TEMP USER STORAGE (for now) */
+const users = [];
+
+/* ✅ MIDDLEWARE */
+app.use(cors()); // ✅ allow frontend
 app.use(express.json());
 
-/* ✅ ROOT ROUTE (FOR TESTING) */
-app.get("/", (req, res) => {
-  res.send("✅ EthixFlow Backend Running");
+/* ✅ TEST ROUTE */
+app.get('/', (req, res) => {
+  res.send('✅ EthixFlow Backend Running');
 });
 
-/* ✅ ASSIGN ROUTE */
-app.post("/assign", (req, res) => {
+
+// =======================
+// ✅ AUTH ROUTES
+// =======================
+
+// ✅ REGISTER
+app.post("/register", async (req, res) => {
   try {
-    console.log("Incoming request:", req.body);
+    const { username, password, role } = req.body;
 
-    const { workers, task } = req.body;
-
-    /* ✅ VALIDATION */
-    if (!workers || !Array.isArray(workers) || workers.length === 0) {
-      return res.status(400).json({ error: "Workers data is missing or invalid" });
+    if (!username || !password) {
+      return res.status(400).json({ error: "Missing username or password" });
     }
 
-    if (!task || task.priority === undefined) {
-      return res.status(400).json({ error: "Priority is missing" });
+    const existingUser = users.find(u => u.username === username);
+    if (existingUser) {
+      return res.status(400).json({ error: "User already exists" });
     }
 
-    /* ✅ COMPUTE SCORES */
-    const results = workers.map(worker => {
-      if (
-        worker.distance === undefined ||
-        worker.workload === undefined
-      ) {
-        throw new Error("Worker data incomplete");
-      }
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-      return {
-        ...worker,
-        score: worker.distance + (worker.workload * 2) - task.priority
-      };
-    });
+    const newUser = {
+      username,
+      password: hashedPassword,
+      role: role || "user"
+    };
 
-    /* ✅ FIND BEST WORKER */
-    const best = results.reduce((a, b) =>
-      a.score < b.score ? a : b
-    );
+    users.push(newUser);
 
-    /* ✅ RETURN RESULT */
-    res.json({
-      assignedTo: best.name,
-      explanation: `Best worker based on lowest score (${best.score})`,
-      details: results
-    });
+    res.json({ message: "✅ User registered successfully" });
 
   } catch (error) {
-    console.error("❌ ERROR in /assign:", error.message);
-
-    res.status(500).json({
-      error: error.message || "Internal server error"
-    });
+    res.status(500).json({ error: error.message });
   }
 });
 
-/* ✅ START SERVER (ONLY ONCE!) */
+
+/* ✅ LOGIN */
+app.post("/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    const user = users.find(u => u.username === username);
+
+    if (!user) {
+      return res.status(401).json({ error: "User not found" });
+    }
+
+    const validPassword = await bcrypt.compare(password, user.password);
+
+    if (!validPassword) {
+      return res.status(401).json({ error: "Invalid password" });
+    }
+
+    const token = jwt.sign(
+      {
+        username: user.username,
+        role: user.role
+      },
+      SECRET_KEY,
+      { expiresIn: "1h" }
+    );
+
+    res.json({ token });
+
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+// =======================
+// ✅ AUTH MIDDLEWARE
+// =======================
+
+const authenticate = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    return res.status(401).json({ error: "No token provided" });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  try {
+    const decoded = jwt.verify(token, SECRET_KEY);
+    req.user = decoded; // ✅ attach user info
+    next();
+  } catch (error) {
+    return res.status(403).json({ error: "Invalid token" });
+  }
+};
+
+
+// ✅ ROLE CHECK (optional but important)
+const requireAdmin = (req, res, next) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
+};
+
+
+// =======================
+// ✅ PROTECTED TASK ASSIGNMENT
+// =======================
+
+app.post('/assign', authenticate, (req, res) => {
+  try {
+    const { workers, task } = req.body;
+
+    if (!workers || workers.length === 0) {
+      return res.status(400).json({ error: "No workers provided" });
+    }
+
+    if (!task || typeof task.priority !== "number") {
+      return res.status(400).json({ error: "Invalid task priority" });
+    }
+
+    let bestWorker = null;
+    let bestScore = Infinity;
+
+    workers.forEach((worker) => {
+      if (
+        !worker.name ||
+        typeof worker.distance !== "number" ||
+        typeof worker.workload !== "number"
+      ) {
+        return;
+      }
+
+      const score = worker.distance + (worker.workload * 2) - task.priority;
+
+      worker.score = score;
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestWorker = worker;
+      }
+    });
+
+    if (!bestWorker) {
+      return res.status(400).json({ error: "No valid workers found" });
+    }
+
+    res.json({
+      assignedTo: bestWorker.name,
+      explanation: `Assigned to ${bestWorker.name} based on optimal score (${bestScore}).`,
+      details: workers,
+      user: req.user // ✅ show who made request
+    });
+
+  } catch (error) {
+    console.error("ERROR:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
+// =======================
+// ✅ START SERVER
+// =======================
+
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
