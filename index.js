@@ -71,7 +71,6 @@ app.post('/assign', (req, res) => {
 });
 
 // ✅ Start server
-const PORT = 5000;
 
 const PORT = process.env.PORT || 5000;
 
