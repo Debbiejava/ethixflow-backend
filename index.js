@@ -1,79 +1,74 @@
-const express = require('express');
-const cors = require('cors');
+const express = require("express");
+const cors = require("cors");
 
 const app = express();
 
-// ✅ Middleware
-app.use(cors({
-  origin: "http://localhost:3000"
-}));
+/* ✅ FIXED CORS (VERY IMPORTANT) */
+app.use(cors()); // allow all origins (works for Azure frontend)
+
+/* ✅ BODY PARSER */
 app.use(express.json());
 
-// ✅ Test route
-app.get('/', (req, res) => {
-  res.send('✅ EthixFlow Backend Running');
+/* ✅ ROOT ROUTE (FOR TESTING) */
+app.get("/", (req, res) => {
+  res.send("✅ EthixFlow Backend Running");
 });
 
-// ✅ Task assignment endpoint (AI ENGINE)
-app.post('/assign', (req, res) => {
-  const { workers, task } = req.body;
+/* ✅ ASSIGN ROUTE */
+app.post("/assign", (req, res) => {
+  try {
+    console.log("Incoming request:", req.body);
 
-  // ✅ Validation
-  if (!workers || workers.length === 0) {
-    return res.status(400).json({ error: "No workers provided" });
-  }
+    const { workers, task } = req.body;
 
-  if (!task || typeof task.priority !== "number") {
-    return res.status(400).json({ error: "Invalid task priority" });
-  }
-
-  // ✅ Use worker data directly (no random values)
-  const workerData = workers;
-
-  let bestWorker = null;
-  let bestScore = Infinity;
-
-  // ✅ AI decision logic
-  workerData.forEach((worker) => {
-
-    // ✅ Validate each worker
-    if (
-      !worker.name ||
-      typeof worker.distance !== "number" ||
-      typeof worker.workload !== "number"
-    ) {
-      return;
+    /* ✅ VALIDATION */
+    if (!workers || !Array.isArray(workers) || workers.length === 0) {
+      return res.status(400).json({ error: "Workers data is missing or invalid" });
     }
 
-    // ✅ Score calculation
-    const score = worker.distance + (worker.workload * 2) - task.priority;
-
-    // ✅ Attach score for UI display
-    worker.score = score;
-
-    if (score < bestScore) {
-      bestScore = score;
-      bestWorker = worker;
+    if (!task || task.priority === undefined) {
+      return res.status(400).json({ error: "Priority is missing" });
     }
-  });
 
-  // ✅ Fallback safety check
-  if (!bestWorker) {
-    return res.status(400).json({ error: "No valid workers found" });
+    /* ✅ COMPUTE SCORES */
+    const results = workers.map(worker => {
+      if (
+        worker.distance === undefined ||
+        worker.workload === undefined
+      ) {
+        throw new Error("Worker data incomplete");
+      }
+
+      return {
+        ...worker,
+        score: worker.distance + (worker.workload * 2) - task.priority
+      };
+    });
+
+    /* ✅ FIND BEST WORKER */
+    const best = results.reduce((a, b) =>
+      a.score < b.score ? a : b
+    );
+
+    /* ✅ RETURN RESULT */
+    res.json({
+      assignedTo: best.name,
+      explanation: `Best worker based on lowest score (${best.score})`,
+      details: results
+    });
+
+  } catch (error) {
+    console.error("❌ ERROR in /assign:", error.message);
+
+    res.status(500).json({
+      error: error.message || "Internal server error"
+    });
   }
-
-  // ✅ Response with explainable output
-  res.json({
-    assignedTo: bestWorker.name,
-    explanation: `Assigned to ${bestWorker.name} because of lower distance (${bestWorker.distance}) and lower workload (${bestWorker.workload}), resulting in the best score.n the best score.`,
-    details: workerData
-  });
 });
 
-// ✅ Start server
-
+/* ✅ START SERVER (ONLY ONCE!) */
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`✅ Server running on port ${PORT}`);
 });
