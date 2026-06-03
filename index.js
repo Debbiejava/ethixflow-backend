@@ -1,190 +1,97 @@
-const express = require('express');
-const cors = require('cors');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+const express = require("express");
+const cors = require("cors");
+const { expressjwt: jwt } = require("express-jwt");
+const jwksRsa = require("jwks-rsa");
 
 const app = express();
 
-/* ✅ CONFIG */
-const SECRET_KEY = "your_secret_key";
+const tenantID = "c2543cdf-68b1-41f5-b543-8dc97906bedf";
+const audience = "api://4bacccf4-e9b6-4fcd-b89c-7d08472551b1";
 
-/* ✅ TEMP USER STORAGE (for now) */
-const users = [];
+app.use(cors({
+  origin: [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "https://black-glacier-08e681d03.azurestaticapps.net",
+    "https://black-glacier-08e681d03.7.azurestaticapps.net"
+  ]
+}));
 
-/* ✅ MIDDLEWARE */
-app.use(cors()); // ✅ allow frontend
 app.use(express.json());
 
-/* ✅ TEST ROUTE */
-app.get('/', (req, res) => {
-  res.send('✅ EthixFlow Backend Running');
-});
-
-
-// =======================
-// ✅ AUTH ROUTES
-// =======================
-
-// ✅ REGISTER
-app.post("/register", async (req, res) => {
-  try {
-    const { username, password, role } = req.body;
-
-    if (!username || !password) {
-      return res.status(400).json({ error: "Missing username or password" });
-    }
-
-    const existingUser = users.find(u => u.username === username);
-    if (existingUser) {
-      return res.status(400).json({ error: "User already exists" });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const newUser = {
-      username,
-      password: hashedPassword,
-      role: role || "user"
-    };
-
-    users.push(newUser);
-
-    res.json({ message: "✅ User registered successfully" });
-
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-
-/* ✅ LOGIN */
-app.post("/login", async (req, res) => {
-  try {
-    const { username, password } = req.body;
-
-    const user = users.find(u => u.username === username);
-
-    if (!user) {
-      return res.status(401).json({ error: "User not found" });
-    }
-
-    const validPassword = await bcrypt.compare(password, user.password);
-
-    if (!validPassword) {
-      return res.status(401).json({ error: "Invalid password" });
-    }
-
-    const token = jwt.sign(
-      {
-        username: user.username,
-        role: user.role
-      },
-      SECRET_KEY,
-      { expiresIn: "1h" }
-    );
-
-    res.json({ token });
-
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-
-// =======================
-// ✅ AUTH MIDDLEWARE
-// =======================
-
-const authenticate = (req, res, next) => {
+/* ✅ DEBUG: LOG RAW TOKEN */
+app.use((req, res, next) => {
   const authHeader = req.headers.authorization;
+  console.log("🔍 AUTH HEADER:", authHeader);
 
-  if (!authHeader) {
-    return res.status(401).json({ error: "No token provided" });
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.split(" ")[1];
+
+    try {
+      const payload = JSON.parse(
+        Buffer.from(token.split(".")[1], "base64").toString()
+      );
+      console.log("✅ TOKEN PAYLOAD:", payload);
+    } catch (err) {
+      console.log("❌ Failed to decode token");
+    }
   }
 
-  const token = authHeader.split(" ")[1];
+  next();
+});
 
-  try {
-    const decoded = jwt.verify(token, SECRET_KEY);
-    req.user = decoded; // ✅ attach user info
-    next();
-  } catch (error) {
+/* ✅ JWT VALIDATION */
+const checkJwt = jwt({
+  secret: jwksRsa.expressJwtSecret({
+    cache: true,
+    rateLimit: true,
+    jwksRequestsPerMinute: 5,
+    jwksUri: `https://login.microsoftonline.com/${tenantID}/discovery/keys`
+  }),
+  audience,
+  issuer: [
+    `https://sts.windows.net/${tenantID}/`,
+    `https://sts.windows.net/${tenantID}`
+  ],
+  algorithms: ["RS256"]
+});
+
+/* ✅ ERROR HANDLER */
+app.use((err, req, res, next) => {
+  if (err.name === "UnauthorizedError") {
+    console.log("❌ JWT ERROR:", err.message);
     return res.status(403).json({ error: "Invalid token" });
   }
-};
-
-
-// ✅ ROLE CHECK (optional but important)
-const requireAdmin = (req, res, next) => {
-  if (req.user.role !== "admin") {
-    return res.status(403).json({ error: "Admin access required" });
-  }
-  next();
-};
-
-
-// =======================
-// ✅ PROTECTED TASK ASSIGNMENT
-// =======================
-
-app.post('/assign', authenticate, (req, res) => {
-  try {
-    const { workers, task } = req.body;
-
-    if (!workers || workers.length === 0) {
-      return res.status(400).json({ error: "No workers provided" });
-    }
-
-    if (!task || typeof task.priority !== "number") {
-      return res.status(400).json({ error: "Invalid task priority" });
-    }
-
-    let bestWorker = null;
-    let bestScore = Infinity;
-
-    workers.forEach((worker) => {
-      if (
-        !worker.name ||
-        typeof worker.distance !== "number" ||
-        typeof worker.workload !== "number"
-      ) {
-        return;
-      }
-
-      const score = worker.distance + (worker.workload * 2) - task.priority;
-
-      worker.score = score;
-
-      if (score < bestScore) {
-        bestScore = score;
-        bestWorker = worker;
-      }
-    });
-
-    if (!bestWorker) {
-      return res.status(400).json({ error: "No valid workers found" });
-    }
-
-    res.json({
-      assignedTo: bestWorker.name,
-      explanation: `Assigned to ${bestWorker.name} based on optimal score (${bestScore}).`,
-      details: workers,
-      user: req.user // ✅ show who made request
-    });
-
-  } catch (error) {
-    console.error("ERROR:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
+  next(err);
 });
 
+/* ✅ PROTECTED ROUTE */
+app.post("/assign", checkJwt, (req, res) => {
+  console.log("✅ AUTH SUCCESS - REQUEST BODY:", req.body);
 
-// =======================
-// ✅ START SERVER
-// =======================
+  const { workers, task } = req.body;
+
+  if (!workers || !task) {
+    return res.status(400).json({ error: "Missing workers or task" });
+  }
+
+  let bestWorker = null;
+  let bestScore = Infinity;
+
+  workers.forEach((w) => {
+    const score = Number(w.distance) + (Number(w.workload) * 2) - Number(task.priority);
+
+    if (score < bestScore) {
+      bestScore = score;
+      bestWorker = w;
+    }
+  });
+
+  res.json({
+    assignedTo: bestWorker.name,
+    explanation: `Assigned to ${bestWorker.name} with score ${bestScore}`
+  });
+});
 
 const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log("✅ Backend running"));
