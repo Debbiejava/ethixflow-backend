@@ -14,7 +14,6 @@ mongoose.connect(
 .then(() => console.log("✅ MongoDB connected successfully"))
 .catch(err => console.error("❌ MongoDB connection error:", err));
 
-
 /* ✅ SCHEMA */
 const taskSchema = new mongoose.Schema({
   workers: [
@@ -84,7 +83,7 @@ app.get("/", (req, res) => {
   res.send("✅ Backend is running successfully!");
 });
 
-/* ✅ ASSIGN + SAVE TO DB */
+/* ✅ ASSIGN + FAIRNESS + EXPLAINABILITY */
 app.post("/assign", checkJwt, async (req, res) => {
   const { workers, task } = req.body;
 
@@ -94,23 +93,51 @@ app.post("/assign", checkJwt, async (req, res) => {
 
   let bestWorker = null;
   let bestScore = Infinity;
+  let bestBreakdown = "";
 
-  workers.forEach((w) => {
+  for (const w of workers) {
+
+    /* ✅ FAIRNESS PENALTY (history-based) */
+    const previousAssignments = await Task.countDocuments({
+      assignedTo: w.name
+    });
+
+    const fairnessPenalty = previousAssignments * 2;
+
+    const distanceScore = Number(w.distance);
+    const workloadScore = Number(w.workload) * 2;
+    const priorityImpact = Number(task.priority);
+
     const score =
-      Number(w.distance) +
-      (Number(w.workload) * 2) -
-      Number(task.priority);
+      distanceScore +
+      workloadScore +
+      fairnessPenalty -
+      priorityImpact;
+
+    /* ✅ EXPLAINABILITY BREAKDOWN */
+    const breakdown = `
+Worker: ${w.name}
+- Distance: ${distanceScore}
+- Workload penalty: ${workloadScore}
+- Fairness penalty: ${fairnessPenalty} (${previousAssignments} past assignments)
+- Priority adjustment: -${priorityImpact}
+Final Score: ${score}
+`;
 
     if (score < bestScore) {
       bestScore = score;
       bestWorker = w;
+      bestBreakdown = breakdown;
     }
-  });
+  }
 
-  const explanation = `Assigned to ${bestWorker.name} with score ${bestScore}`;
+  const explanation = `
+✅ Assigned to ${bestWorker.name}
+
+${bestBreakdown}
+`;
 
   try {
-    /* ✅ SAVE TO DATABASE */
     const newTask = new Task({
       workers,
       priority: task.priority,
