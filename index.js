@@ -66,6 +66,10 @@ app.use((err, req, res, next) => {
   next(err);
 });
 
+app.get("/", (req, res) => {
+  res.send("✅ Backend is running successfully!");
+});
+
 /* ✅ PROTECTED ROUTE */
 app.post("/assign", checkJwt, (req, res) => {
   console.log("✅ AUTH SUCCESS - REQUEST BODY:", req.body);
