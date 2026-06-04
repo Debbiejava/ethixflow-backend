@@ -1,14 +1,12 @@
 const express = require("express");
 const cors = require("cors");
-// trigger deployment
-const { expressjwt: jwt } = require("express-jwt");
-const jwksRsa = require("jwks-rsa");
+const jwt = require("jsonwebtoken");
 
 const app = express();
 
-const tenantID = "c2543cdf-68b1-41f5-b543-8dc97906bedf";
-const audience = "api://4bacccf4-e9b6-4fcd-b89c-7d08472551b1";
+const SECRET = "ethixflow_secret";
 
+/* ✅ MIDDLEWARE */
 app.use(cors({
   origin: [
     "http://localhost:3000",
@@ -20,60 +18,44 @@ app.use(cors({
 
 app.use(express.json());
 
-/* ✅ DEBUG: LOG RAW TOKEN */
-app.use((req, res, next) => {
-  const authHeader = req.headers.authorization;
-  console.log("🔍 AUTH HEADER:", authHeader);
+/* ✅ LOGIN ROUTE */
+app.post("/login", (req, res) => {
+  const { email, password } = req.body;
 
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    const token = authHeader.split(" ")[1];
-
-    try {
-      const payload = JSON.parse(
-        Buffer.from(token.split(".")[1], "base64").toString()
-      );
-      console.log("✅ TOKEN PAYLOAD:", payload);
-    } catch (err) {
-      console.log("❌ Failed to decode token");
-    }
+  if (email === "admin@test.com" && password === "1234") {
+    const token = jwt.sign({ email }, SECRET, { expiresIn: "1h" });
+    return res.json({ token });
   }
 
-  next();
+  res.status(401).json({ error: "Invalid credentials" });
 });
 
-/* ✅ JWT VALIDATION */
-const checkJwt = jwt({
-  secret: jwksRsa.expressJwtSecret({
-    cache: true,
-    rateLimit: true,
-    jwksRequestsPerMinute: 5,
-    jwksUri: `https://login.microsoftonline.com/${tenantID}/discovery/keys`
-  }),
-  audience,
-  issuer: [
-    `https://sts.windows.net/${tenantID}/`,
-    `https://sts.windows.net/${tenantID}`
-  ],
-  algorithms: ["RS256"]
-});
+/* ✅ JWT VALIDATION (SIMPLE) */
+const checkJwt = (req, res, next) => {
+  const authHeader = req.headers.authorization;
 
-/* ✅ ERROR HANDLER */
-app.use((err, req, res, next) => {
-  if (err.name === "UnauthorizedError") {
-    console.log("❌ JWT ERROR:", err.message);
+  if (!authHeader) {
+    return res.status(401).json({ error: "No token provided" });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  try {
+    const decoded = jwt.verify(token, SECRET);
+    req.user = decoded;
+    next();
+  } catch {
     return res.status(403).json({ error: "Invalid token" });
   }
-  next(err);
-});
+};
 
+/* ✅ HEALTH CHECK */
 app.get("/", (req, res) => {
   res.send("✅ Backend is running successfully!");
 });
 
 /* ✅ PROTECTED ROUTE */
 app.post("/assign", checkJwt, (req, res) => {
-  console.log("✅ AUTH SUCCESS - REQUEST BODY:", req.body);
-
   const { workers, task } = req.body;
 
   if (!workers || !task) {
@@ -84,7 +66,10 @@ app.post("/assign", checkJwt, (req, res) => {
   let bestScore = Infinity;
 
   workers.forEach((w) => {
-    const score = Number(w.distance) + (Number(w.workload) * 2) - Number(task.priority);
+    const score =
+      Number(w.distance) +
+      (Number(w.workload) * 2) -
+      Number(task.priority);
 
     if (score < bestScore) {
       bestScore = score;
