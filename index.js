@@ -9,14 +9,11 @@ const SECRET = "ethixflow_secret";
 
 /* ✅ CONNECT TO MONGODB */
 mongoose.connect(
-  "mongodb+srv://oluwaseuna294_db_user:Inverclyde%402025@ethixflowdb.n8y7ujr.mongodb.net/ethixflow?retryWrites=true&w=majority",
-  {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-  }
+  "mongodb+srv://oluwaseuna294_db_user:Inverclyde%402025@ethixflowdb.n8y7ujr.mongodb.net/ethixflow?retryWrites=true&w=majority"
 )
-.then(() => console.log("✅ MongoDB connected"))
-.catch(err => console.error("❌ MongoDB error:", err));
+.then(() => console.log("✅ MongoDB connected successfully"))
+.catch(err => console.error("❌ MongoDB connection error:", err));
+
 
 /* ✅ SCHEMA */
 const taskSchema = new mongoose.Schema({
