@@ -1,10 +1,43 @@
 const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
 
 const app = express();
 
 const SECRET = "ethixflow_secret";
+
+/* ✅ CONNECT TO MONGODB */
+mongoose.connect(
+  "mongodb+srv://oluwaseuna294_db_user:Inverclyde%402025@ethixflowdb.n8y7ujr.mongodb.net/ethixflow?retryWrites=true&w=majority",
+  {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+  }
+)
+.then(() => console.log("✅ MongoDB connected"))
+.catch(err => console.error("❌ MongoDB error:", err));
+
+/* ✅ SCHEMA */
+const taskSchema = new mongoose.Schema({
+  workers: [
+    {
+      name: String,
+      distance: Number,
+      workload: Number
+    }
+  ],
+  priority: Number,
+  assignedTo: String,
+  score: Number,
+  explanation: String,
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+const Task = mongoose.model("Task", taskSchema);
 
 /* ✅ MIDDLEWARE */
 app.use(cors({
@@ -18,7 +51,7 @@ app.use(cors({
 
 app.use(express.json());
 
-/* ✅ LOGIN ROUTE */
+/* ✅ LOGIN */
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
 
@@ -30,7 +63,7 @@ app.post("/login", (req, res) => {
   res.status(401).json({ error: "Invalid credentials" });
 });
 
-/* ✅ JWT VALIDATION (SIMPLE) */
+/* ✅ JWT CHECK */
 const checkJwt = (req, res, next) => {
   const authHeader = req.headers.authorization;
 
@@ -54,8 +87,8 @@ app.get("/", (req, res) => {
   res.send("✅ Backend is running successfully!");
 });
 
-/* ✅ PROTECTED ROUTE */
-app.post("/assign", checkJwt, (req, res) => {
+/* ✅ ASSIGN + SAVE TO DB */
+app.post("/assign", checkJwt, async (req, res) => {
   const { workers, task } = req.body;
 
   if (!workers || !task) {
@@ -77,10 +110,39 @@ app.post("/assign", checkJwt, (req, res) => {
     }
   });
 
-  res.json({
-    assignedTo: bestWorker.name,
-    explanation: `Assigned to ${bestWorker.name} with score ${bestScore}`
-  });
+  const explanation = `Assigned to ${bestWorker.name} with score ${bestScore}`;
+
+  try {
+    /* ✅ SAVE TO DATABASE */
+    const newTask = new Task({
+      workers,
+      priority: task.priority,
+      assignedTo: bestWorker.name,
+      score: bestScore,
+      explanation
+    });
+
+    await newTask.save();
+
+    res.json({
+      assignedTo: bestWorker.name,
+      explanation
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to save task" });
+  }
+});
+
+/* ✅ GET HISTORY */
+app.get("/tasks", async (req, res) => {
+  try {
+    const tasks = await Task.find().sort({ createdAt: -1 });
+    res.json(tasks);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to fetch tasks" });
+  }
 });
 
 const PORT = process.env.PORT || 5000;
