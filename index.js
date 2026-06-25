@@ -40,31 +40,39 @@ app.use(cors({
   origin: [
     "http://localhost:3000",
     "http://localhost:3001",
-    "https://black-glacier-08e681d03.azurestaticapps.net",
-    "https://black-glacier-08e681d03.7.azurestaticapps.net"
+    "https://jolly-smoke-0c3004503.7.azurestaticapps.net"
   ]
 }));
 
 app.use(express.json());
 
-/* ✅ LOGIN */
+/* ✅ LOGIN (JWT AUTH) */
 app.post("/login", (req, res) => {
   const { email, password } = req.body;
 
+  // Demo credentials (for VIVA)
   if (email === "admin@test.com" && password === "1234") {
-    const token = jwt.sign({ email }, SECRET, { expiresIn: "1h" });
-    return res.json({ token });
+    const token = jwt.sign(
+      { email },
+      SECRET,
+      { expiresIn: "1h" }
+    );
+
+    return res.json({
+      token,
+      message: "Login successful"
+    });
   }
 
-  res.status(401).json({ error: "Invalid credentials" });
+  res.status(401).json({ message: "Invalid credentials" });
 });
 
-/* ✅ JWT CHECK */
+/* ✅ JWT MIDDLEWARE */
 const checkJwt = (req, res, next) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {
-    return res.status(401).json({ error: "No token provided" });
+    return res.status(401).json({ message: "No token provided" });
   }
 
   const token = authHeader.split(" ")[1];
@@ -73,8 +81,8 @@ const checkJwt = (req, res, next) => {
     const decoded = jwt.verify(token, SECRET);
     req.user = decoded;
     next();
-  } catch {
-    return res.status(403).json({ error: "Invalid token" });
+  } catch (err) {
+    return res.status(403).json({ message: "Invalid or expired token" });
   }
 };
 
@@ -83,12 +91,12 @@ app.get("/", (req, res) => {
   res.send("✅ Backend is running successfully!");
 });
 
-/* ✅ ASSIGN + FAIRNESS + EXPLAINABILITY */
+/* ✅ TASK ASSIGNMENT */
 app.post("/assign", checkJwt, async (req, res) => {
   const { workers, task } = req.body;
 
   if (!workers || !task) {
-    return res.status(400).json({ error: "Missing workers or task" });
+    return res.status(400).json({ message: "Missing workers or task" });
   }
 
   let bestWorker = null;
@@ -97,7 +105,7 @@ app.post("/assign", checkJwt, async (req, res) => {
 
   for (const w of workers) {
 
-    /* ✅ FAIRNESS PENALTY (history-based) */
+    /* ✅ FAIRNESS PENALTY */
     const previousAssignments = await Task.countDocuments({
       assignedTo: w.name
     });
@@ -114,7 +122,7 @@ app.post("/assign", checkJwt, async (req, res) => {
       fairnessPenalty -
       priorityImpact;
 
-    /* ✅ EXPLAINABILITY BREAKDOWN */
+    /* ✅ EXPLAINABILITY */
     const breakdown = `
 Worker: ${w.name}
 - Distance: ${distanceScore}
@@ -150,24 +158,29 @@ ${bestBreakdown}
 
     res.json({
       assignedTo: bestWorker.name,
+      score: bestScore,
       explanation
     });
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Failed to save task" });
+    res.status(500).json({ message: "Failed to save task" });
   }
 });
 
-/* ✅ GET HISTORY */
-app.get("/tasks", async (req, res) => {
+/* ✅ GET TASK HISTORY (OPTIONAL: PROTECT IT) */
+app.get("/tasks", checkJwt, async (req, res) => {
   try {
     const tasks = await Task.find().sort({ createdAt: -1 });
     res.json(tasks);
   } catch (err) {
-    res.status(500).json({ error: "Failed to fetch tasks" });
+    res.status(500).json({ message: "Failed to fetch tasks" });
   }
 });
 
+/* ✅ START SERVER */
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log("✅ Backend running"));
+
+app.listen(PORT, () => {
+  console.log(`✅ Backend running on port ${PORT}`);
+});
