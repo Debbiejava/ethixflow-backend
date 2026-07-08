@@ -155,11 +155,20 @@ const workers = await Worker.find({
   available: true
 });
 
-  if (!workers || !task) {
-    return res.status(400).json({
-      message: "Missing workers or task",
-    });
-  }
+console.log("Workers found:", workers.length);
+console.log("Task received:", task);
+
+  if (!task) {
+  return res.status(400).json({
+    message: "Task information missing"
+  });
+}
+
+if (!workers.length) {
+  return res.status(400).json({
+    message: "No available workers found"
+  });
+}
 
   let bestWorker = null;
   let bestScore = Infinity;
@@ -205,7 +214,8 @@ Final Score: ${score}
       bestBreakdown = breakdown;
     }
   }
-
+console.log("Best worker:", bestWorker);
+console.log("Best score:", bestScore);
   const explanation = `
 ✅ Assigned to ${bestWorker.name}
 
@@ -232,13 +242,13 @@ ${bestBreakdown}
 
   } catch (err) {
 
-    console.error(err);
+  console.error("ASSIGN ERROR:", err);
 
-    res.status(500).json({
-      message: "Failed to save task",
-    });
+  res.status(500).json({
+    message: err.message
+  });
 
-  }
+}
 });
 
 /* ✅ TASK HISTORY */
