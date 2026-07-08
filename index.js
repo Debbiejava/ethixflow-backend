@@ -149,7 +149,11 @@ app.get("/workers", async (req, res) => {
 /* ✅ TASK ASSIGNMENT */
 app.post("/assign", checkJwt, async (req, res) => {
 
-  const { workers, task } = req.body;
+  const { task } = req.body;
+
+const workers = await Worker.find({
+  available: true
+});
 
   if (!workers || !task) {
     return res.status(400).json({
