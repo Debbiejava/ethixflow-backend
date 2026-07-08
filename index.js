@@ -1,21 +1,24 @@
-const express = require("express");
-const cors = require("cors");
-const jwt = require("jsonwebtoken");
-const mongoose = require("mongoose");
+
+
+require("dotenv").config();
+import express, { json } from "express";
+import cors from "cors";
+import { sign, verify } from "jsonwebtoken";
+import { connect, Schema, model } from "mongoose";
 
 const app = express();
 
 const SECRET = "ethixflow_secret";
 
 /* ✅ CONNECT TO MONGODB */
-mongoose.connect(
-  "mongodb+srv://oluwaseuna294_db_user:Inverclyde%402025@ethixflowdb.n8y7ujr.mongodb.net/ethixflow?retryWrites=true&w=majority"
+connect(
+  process.env.MONGODB_URI
 )
 .then(() => console.log("✅ MongoDB connected successfully"))
 .catch(err => console.error("❌ MongoDB connection error:", err));
 
 /* ✅ SCHEMA */
-const taskSchema = new mongoose.Schema({
+const taskSchema = new Schema({
   workers: [
     {
       name: String,
@@ -33,18 +36,18 @@ const taskSchema = new mongoose.Schema({
   }
 });
 
-const Task = mongoose.model("Task", taskSchema);
+const Task = model("Task", taskSchema);
 
 /* ✅ MIDDLEWARE */
 app.use(cors({
   origin: [
     "http://localhost:3000",
     "http://localhost:3001",
-    "https://jolly-smoke-0c3004503.7.azurestaticapps.net"
+    process.env.FRONTEND_URL
   ]
 }));
 
-app.use(express.json());
+app.use(json());
 
 /* ✅ LOGIN (JWT AUTH) */
 app.post("/login", (req, res) => {
@@ -52,7 +55,7 @@ app.post("/login", (req, res) => {
 
   // Demo credentials (for VIVA)
   if (email === "admin@test.com" && password === "1234") {
-    const token = jwt.sign(
+    const token = sign(
       { email },
       SECRET,
       { expiresIn: "1h" }
@@ -78,7 +81,7 @@ const checkJwt = (req, res, next) => {
   const token = authHeader.split(" ")[1];
 
   try {
-    const decoded = jwt.verify(token, SECRET);
+    const decoded = verify(token, SECRET);
     req.user = decoded;
     next();
   } catch (err) {
