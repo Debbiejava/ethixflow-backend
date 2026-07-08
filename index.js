@@ -12,6 +12,8 @@ const { connect, Schema, model } = mongoose;
 
 const app = express();
 
+
+
 const SECRET = "ethixflow_secret";
 
 /* ✅ CONNECT TO MONGODB */
@@ -43,23 +45,32 @@ const taskSchema = new Schema({
 const Task = model("Task", taskSchema);
 
 /* ✅ MIDDLEWARE */
-app.use(
-  cors({
-    origin: [
-      "http://localhost:3000",
-      "http://localhost:3001",
-      process.env.FRONTEND_URL,
-    ],
-  })
-);
+app.use(cors({
+  origin: [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "https://jolly-smoke-0c3004503.7.azurestaticapps.net"
+  ],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
 
 app.use(express.json());
 
 /* ✅ LOGIN */
 app.post("/login", (req, res) => {
+
   const { email, password } = req.body;
 
-  if (email === "admin@test.com" && password === "1234") {
+  console.log("LOGIN REQUEST:");
+  console.log("Email:", email);
+  console.log("Password:", password);
+
+  if (
+    email === "admin@test.com" &&
+    password === "1234"
+  ) {
+
     const token = sign(
       { email },
       SECRET,
@@ -68,13 +79,17 @@ app.post("/login", (req, res) => {
 
     return res.json({
       token,
-      message: "Login successful",
+      message: "Login successful"
     });
+
   }
 
+  console.log("Invalid Login Attempt");
+
   res.status(401).json({
-    message: "Invalid credentials",
+    message: "Invalid credentials"
   });
+
 });
 
 /* ✅ JWT MIDDLEWARE */
